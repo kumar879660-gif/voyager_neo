@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voyager: Neon Horizon RGB</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, orientation=landscape">
+    <style>
+        :root { --primary: #00d4ff; --bg: #050510; }
+        body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', sans-serif; touch-action: none; }
+        
+        .overlay { position: absolute; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); z-index: 100; color: white; transition: opacity 0.5s; }
+        .menu-card { display: flex; flex-direction: row; gap: 30px; background: linear-gradient(145deg, #111, #1a1a2e); padding: 30px; border-radius: 20px; border: 1px solid var(--primary); box-shadow: 0 0 30px rgba(0,212,255,0.2); max-height: 90vh; overflow-y: auto; }
+        
+        .col { display: flex; flex-direction: column; width: 200px; }
+        .title { font-size: 28px; letter-spacing: 3px; margin: 0; color: var(--primary); text-shadow: 0 0 15px var(--primary); }
+        .section-title { font-size: 11px; color: #555; margin-top: 10px; margin-bottom: 2px; text-transform: uppercase; font-weight: bold; }
+        
+        #game-ui { position: absolute; top: 15px; width: 100%; display: none; justify-content: space-around; color: white; pointer-events: none; z-index: 50; font-weight: bold; text-shadow: 2px 2px 4px black; }
+        
+        .btn { padding: 10px; margin: 4px 0; background: #222; border: 1px solid #444; color: #aaa; cursor: pointer; font-weight: bold; font-size: 11px; transition: 0.2s; border-radius: 4px; }
+        .btn:hover, .active-map { border-color: var(--primary); color: var(--primary); background: rgba(0,212,255,0.1); box-shadow: 0 0 10px rgba(0,212,255,0.1); }
+        .start-btn { background: var(--primary); color: black; padding: 15px; font-size: 18px; border: none; cursor: pointer; border-radius: 8px; margin-top: 15px; font-weight: bold; box-shadow: 0 0 15px var(--primary); }
+        .stat-val { color: var(--primary); font-size: 1.2em; }
+    </style>
+</head>
+<body>
+
+    <div id="main-menu" class="overlay">
+        <div class="menu-card">
+            <div class="col">
+                <h1 class="title">VOYAGER</h1>
+                <p>BEST: <span id="menu-high" class="stat-val">0</span>m</p>
+                <p>COINS: <span id="menu-coins" style="color:gold">0</span></p>
+                <button class="start-btn" onclick="startGame()">LAUNCH</button>
+            </div>
+            <div class="col">
+                <div class="section-title">Environment</div>
+                <button class="btn active-map" id="btn-storm" onclick="setMap('storm')">STORMY SEAS</button>
+                <button class="btn" id="btn-arctic" onclick="setMap('arctic')">ARCTIC MIST</button>
+                <button class="btn" id="btn-beach" onclick="setMap('beach')">TROPICAL BAY</button>
+                <button class="btn" id="btn-sunset" onclick="setMap('sunset')">SUNSET CANYON</button>
+                <button class="btn" id="btn-city" onclick="setMap('city')" style="color:#f0f; border-color:#f0f;">NEON RIVER</button>
+            </div>
+            <div class="col">
+               <div class="section-title">Ship Paint (25c)</div>
+               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                    <button class="btn" onclick="buyShip(0xff4444)">RED</button>
+                    <button class="btn" onclick="buyShip(0x00ff00)">GREEN</button>
+                    <button class="btn" onclick="buyShip(0x00d4ff)">BLUE</button>
+                    <button class="btn" onclick="buyShip(0xffd700)">GOLD</button>
+                    <button class="btn" onclick="buyShip(0xffffff)">WHITE</button>
+                    <button class="btn" onclick="buyShip(0xff00ff)">NEON</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="game-ui">
+        <span>DIST: <span id="score" class="stat-val">0</span>m</span>
+        <span><span id="coins" class="stat-val" style="color:gold">0</span> 🟡</span>
+    </div>
+
+    <div id="death-screen" class="overlay" style="display:none">
+        <div class="menu-card" style="flex-direction: column; text-align: center; width: 250px;">
+            <h2 style="color:#ff4444; margin:0;">CRITICAL FAILURE</h2>
+            <p>Distance: <span id="final-score" class="stat-val">0</span>m</p>
+            <button class="start-btn" onclick="location.reload()">REBOOT</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        let score = 0, coins = parseInt(localStorage.getItem('coins')) || 0;
+        let gameActive = false, alive = true, gameSpeed = 0.5, moveDirection = 0;
+        let currentMap = 'storm';
+        let bounds = 14; 
+        let time = 0;
+
+        // --- GRAPHICS SETUP ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 7, 13); camera.lookAt(0, 0, -5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio); // Sharpness on mobile
+        renderer.shadowMap.enabled = true; // Enable Shadows
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft Shadows
+        document.body.appendChild(renderer.domElement);
+
+        // --- LIGHTING ---
+        const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+        sun.position.set(10, 20, 10);
+        sun.castShadow = true;
+        sun.shadow.mapSize.width = 1024; sun.shadow.mapSize.height = 1024;
+        sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 50;
+        scene.add(sun);
+        scene.add(new THREE.AmbientLight(0x404040, 0.6)); 
+
+        const spotLight = new THREE.SpotLight(0x00d4ff, 2);
+        spotLight.position.set(0, 5, 0); spotLight.angle = 0.5; spotLight.penumbra = 0.5;
+        scene.add(spotLight);
+
+        // --- WATER ---
+        const seaGeo = new THREE.PlaneGeometry(200, 200, 40, 40);
+        const seaMat = new THREE.MeshStandardMaterial({ color: 0x001122, roughness: 0.1, metalness: 0.8, flatShading: true });
+        const sea = new THREE.Mesh(seaGeo, seaMat);
+        sea.rotation.x = -Math.PI / 2; sea.receiveShadow = true;
+        scene.add(sea);
+
+        // --- SHIP ---
+        const shipGroup = new THREE.Group();
+        const shipMat = new THREE.MeshStandardMaterial({ color: 0x552211, roughness: 0.3, metalness: 0.4 });
+        const hull = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 3.5), shipMat);
+        hull.position.y = 0.3; hull.castShadow = true;
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(1, 0.8, 1.5), shipMat);
+        cabin.position.set(0, 1, -0.5); cabin.castShadow = true;
+        const ex1 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.8), new THREE.MeshStandardMaterial({color:0x333333}));
+        ex1.rotation.x = -0.5; ex1.position.set(0.4, 0.8, 1.5);
+        const ex2 = ex1.clone(); ex2.position.set(-0.4, 0.8, 1.5);
+        const engineLight = new THREE.PointLight(0x00ffff, 1, 5); engineLight.position.set(0, 0.5, 2);
+        shipGroup.add(hull, cabin, ex1, ex2, engineLight);
+        scene.add(shipGroup);
+
+        // --- PARTICLES ---
+        const particleGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+        const particleMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
+        let particles = [];
+        function spawnParticle() {
+            if(!gameActive) return;
+            let p = new THREE.Mesh(particleGeo, particleMat);
+            p.position.copy(shipGroup.position); p.position.z += 1.5; p.position.y = 0.1;
+            p.rotation.set(Math.random(), Math.random(), Math.random());
+            scene.add(p); particles.push({mesh: p, life: 1.0});
+        }
+
+        // --- ASSETS & MATERIALS ---
+        const coinGeo = new THREE.TorusGeometry(0.4, 0.1, 8, 16);
+        // High intensity glow for coins (0.5)
+        const coinMat = new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0xffaa00, emissiveIntensity: 0.5, metalness: 1, roughness: 0.2 });
+        
+        // Obstacle Geometry
+        const obstacleGeo = new THREE.IcosahedronGeometry(0.8, 0);
+        
+        // New Colored, Low-Glow Obstacle Materials (Intensity 0.2)
+        const obsRedMat = new THREE.MeshStandardMaterial({ color: 0xff2222, emissive: 0xff0000, emissiveIntensity: 0.2, roughness: 0.9 });
+        const obsGreenMat = new THREE.MeshStandardMaterial({ color: 0x22ff22, emissive: 0x00ff00, emissiveIntensity: 0.2, roughness: 0.9 });
+        const obsBrownMat = new THREE.MeshStandardMaterial({ color: 0x8b4513, emissive: 0x543210, emissiveIntensity: 0.2, roughness: 1.0 });
+
+        // City
+        const cityGroup = new THREE.Group();
+        const wallGeo = new THREE.BoxGeometry(4, 60, 200);
+        const wallMat = new THREE.MeshStandardMaterial({color: 0x050505, roughness: 0.2});
+        const neonStripMat = new THREE.MeshBasicMaterial({color: 0xff00ff});
+        for(let x of [-20, 20]) {
+            let w = new THREE.Mesh(wallGeo, wallMat); w.position.set(x, 10, -50); cityGroup.add(w);
+            for(let i=0; i<8; i++) {
+                let strip = new THREE.Mesh(new THREE.BoxGeometry(4.1, 0.5, 20), neonStripMat);
+                strip.position.set(x, 5 + i*6, -20 - i*20); cityGroup.add(strip);
+            }
+        }
+        cityGroup.visible = false; scene.add(cityGroup);
+
+        // --- MAP LOGIC ---
+        function setMap(type) {
+            currentMap = type; bounds = 14; cityGroup.visible = false;
+            document.querySelectorAll('.btn').forEach(b => b.classList.remove('active-map'));
+            document.getElementById('btn-'+type).classList.add('active-map');
+            if(type === 'storm') {
+                scene.background = new THREE.Color(0x050510); scene.fog = new THREE.FogExp2(0x050510, 0.04);
+                seaMat.color.setHex(0x001122); sun.intensity = 0.5; spotLight.intensity = 2;
+            } else if(type === 'arctic') {
+                scene.background = new THREE.Color(0x112233); scene.fog = new THREE.Fog(0x112233, 10, 60);
+                seaMat.color.setHex(0x224466); sun.intensity = 0.8; spotLight.intensity = 1;
+            } else if(type === 'beach') {
+                scene.background = new THREE.Color(0x74ebd5); scene.fog = null;
+                seaMat.color.setHex(0x00aacc); sun.intensity = 1.5; spotLight.intensity = 0;
+            } else if(type === 'sunset') {
+                scene.background = new THREE.Color(0xff8844); scene.fog = new THREE.FogExp2(0xff8844, 0.025);
+                seaMat.color.setHex(0x662200); sun.intensity = 1.0; spotLight.intensity = 1;
+            } else if(type === 'city') {
+                scene.background = new THREE.Color(0x000000); scene.fog = new THREE.FogExp2(0x000000, 0.03);
+                seaMat.color.setHex(0x110022); sun.intensity = 0.1; spotLight.intensity = 3;
+                cityGroup.visible = true; bounds = 9;
+            }
+        }
+        setMap('storm');
+
+        // --- CONTROLS ---
+        function vibrate(ms) { if(navigator.vibrate) navigator.vibrate(ms); }
+        window.addEventListener('pointerdown', (e) => { if(gameActive) moveDirection = e.clientX < window.innerWidth/2 ? -1 : 1; });
+        window.addEventListener('pointerup', () => moveDirection = 0);
+        function startGame() {
+            document.getElementById('main-menu').style.opacity = '0';
+            setTimeout(() => { document.getElementById('main-menu').style.display = 'none'; document.getElementById('game-ui').style.display = 'flex'; gameActive = true; }, 500);
+        }
+        function buyShip(color) {
+            if(coins >= 25) { coins -= 25; localStorage.setItem('coins', coins); shipMat.color.setHex(color); updateUI(); vibrate(50); }
+        }
+        function updateUI() {
+            document.getElementById('menu-coins').innerText = coins; document.getElementById('coins').innerText = coins;
+            document.getElementById('score').innerText = Math.floor(score);
+            document.getElementById('menu-high').innerText = localStorage.getItem('highScore') || 0;
+        }
+
+        // --- GAME LOOP ---
+        let items = [];
+        function spawn() {
+            if(Math.random() > 0.05) return;
+            let isCoin = Math.random() < 0.25;
+            let mesh;
+            
+            if(isCoin) {
+                mesh = new THREE.Mesh(coinGeo, coinMat);
+            } else {
+                // Randomly select one of the 3 colored obstacle materials
+                let randCol = Math.random();
+                let selectedMat;
+                if(randCol < 0.33) selectedMat = obsRedMat;
+                else if(randCol < 0.66) selectedMat = obsGreenMat;
+                else selectedMat = obsBrownMat;
+
+                mesh = new THREE.Mesh(obstacleGeo, selectedMat);
+                // Random scales for variety
+                let s = 0.8 + Math.random()*0.5;
+                mesh.scale.set(s,s,s);
+            }
+            
+            let range = currentMap === 'city' ? 16 : 28;
+            mesh.position.set(Math.random()*range - range/2, isCoin?0.5:0, -70);
+            mesh.castShadow = true;
+            mesh.userData = {isCoin: isCoin, rotSpeed: Math.random()*0.1};
+            scene.add(mesh); items.push(mesh);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.05;
+            const positions = seaGeo.attributes.position.array;
+            for(let i=0; i<positions.length; i+=3) {
+                positions[i+2] = Math.sin(positions[i]*0.5 + time)*0.5 + Math.cos(positions[i+1]*0.3 + time)*0.5;
+            }
+            seaGeo.attributes.position.needsUpdate = true;
+
+            if(!gameActive || !alive) { renderer.render(scene, camera); return; }
+
+            shipGroup.position.x += moveDirection * 0.35;
+            shipGroup.position.x = Math.max(-bounds, Math.min(bounds, shipGroup.position.x));
+            shipGroup.rotation.z = THREE.MathUtils.lerp(shipGroup.rotation.z, -moveDirection * 0.3, 0.1);
+            shipGroup.position.y = (Math.sin(shipGroup.position.x*0.5 + time)*0.5) + 0.2;
+            shipGroup.rotation.x = Math.sin(time*2)*0.05;
+
+            spawnParticle();
+            for(let i=particles.length-1; i>=0; i--) {
+                let p = particles[i]; p.life -= 0.03; p.mesh.position.z += 0.2; p.mesh.scale.multiplyScalar(0.95); p.mesh.rotation.z += 0.1;
+                if(p.life <= 0) { scene.remove(p.mesh); particles.splice(i,1); }
+            }
+
+            gameSpeed = 0.5 + (score * 0.0003); score += 0.1; spawn();
+            for(let i=items.length-1; i>=0; i--) {
+                items[i].position.z += gameSpeed;
+                items[i].rotation.y += items[i].userData.rotSpeed; items[i].rotation.x += items[i].userData.rotSpeed;
+                if(items[i].position.distanceTo(shipGroup.position) < 2.5) {
+                    if(items[i].userData.isCoin) {
+                        vibrate(20); coins++; updateUI(); localStorage.setItem('coins', coins); scene.remove(items[i]); items.splice(i,1);
+                    } else { vibrate(400); die(); }
+                } else if(items[i].position.z > 15) { scene.remove(items[i]); items.splice(i,1); }
+            }
+            if(cityGroup.visible) { cityGroup.position.z += gameSpeed; if(cityGroup.position.z > 20) cityGroup.position.z = 0; }
+            updateUI(); renderer.render(scene, camera);
+        }
+
+        function die() {
+            alive = false; document.getElementById('game-ui').style.display = 'none'; document.getElementById('death-screen').style.display = 'flex';
+            document.getElementById('final-score').innerText = Math.floor(score);
+            if(score > (localStorage.getItem('highScore')||0)) localStorage.setItem('highScore', Math.floor(score));
+        }
+        updateUI(); animate();
+    </script>
+</body>
+</html>
